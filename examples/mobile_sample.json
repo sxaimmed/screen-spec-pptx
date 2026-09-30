@@ -1,0 +1,33 @@
+{
+  "doc": {"project": "{SERVICE_NAME} 모바일웹", "service": "{SERVICE_NAME}", "deliverable": "화면설계서-모바일", "version": "v01",
+          "date": "2026-09-29", "author": "-", "mode": "MO", "source": "기능정의서_{SERVICE_NAME}_v01.xlsx"},
+  "revisions": [["v0.1", "2026-09-29", "전체", "최초 작성", "-"]],
+  "sections": [
+    {"title": "무상 약품 신청", "screens": [
+      {
+        "key": "INTRO", "screenId": "Apply_Intro", "name": "신청 안내", "path": ["무상 약품 신청"], "status": "신규", "req": "REQ-03",
+        "overview": ["약품 신청 프로세스 진입 전 절차를 안내하는 화면", "진입: 홈 [Home] > [무상 약품 신청하기] 터치"],
+        "items": [
+          {"no": "1", "type": "버튼", "name": "뒤로가기", "cid": "Apply_Intro-btn-1", "lines": ["터치 → 홈 [Home]으로 이동"]},
+          {"no": "2", "type": "텍스트", "name": "신청 절차 안내", "cid": "Apply_Intro-txt-1", "lines": ["절차 1~6단계 문구 표시", "문구 [TBD T-1]"]},
+          {"no": "3", "type": "버튼", "name": "무상 약품 신청하기", "cid": "Apply_Intro-btn-2", "lines": ["항상 활성화", "평일 09:00~18:00 → 처방 정보 입력 [Apply_Rx]으로 이동", "그 외 시간 → 이용 시간 안내 알럿 표시 (3-1)"]},
+          {"no": "3-1", "type": "알럿", "name": "이용 시간 안내", "cid": "Apply_Intro-alert-1", "lines": ["\"서비스 가능 시간이 아닙니다.\"", "[확인] → 알럿 닫기, 현재 화면 유지"]}
+        ],
+        "wire": {"frames": [
+          {"label": "기본", "title": "무상 약품 신청하기", "navNo": "1",
+           "body": [
+             {"t": "title", "text": "신청 전 안내드려요"},
+             {"t": "card", "no": "2", "lines": ["1  처방 정보를 입력합니다.", "2  서류를 등록합니다.", "3  서류 심사가 진행됩니다.", "4  심사 완료 후 약국을 선택합니다."]},
+             {"t": "text", "text": "※ 본 무상 약품 신청은 1회만 가능합니다.", "size": 8, "color": "#666666"}
+           ],
+           "bottom": [{"t": "btn", "text": "무상 약품 신청하기", "primary": true, "no": "3"}]},
+          {"label": "ID: Apply_Intro (이용 시간 외)", "title": "무상 약품 신청하기",
+           "body": [{"t": "title", "text": "신청 전 안내드려요"}],
+           "bottom": [{"t": "btn", "text": "무상 약품 신청하기", "primary": true}],
+           "popup": {"no": "3-1", "title": "서비스 가능 시간이 아닙니다.", "body": ["서비스 가능시간", "평일 오전 9시~18시"], "buttons": [{"btn": "확인", "primary": true}]}}
+        ]}
+      }
+    ]}
+  ],
+  "decisions": [["T-1", "TBD", "Apply_Intro", "절차 안내 문구 최종본 확정 필요", "기획"]]
+}
