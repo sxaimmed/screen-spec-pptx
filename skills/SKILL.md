@@ -56,7 +56,7 @@ python3 $S/scripts/build_deck.py screen_spec.json -o out --scope partial --targe
    python3 $S/scripts/build_deck.py screen_spec.json -o out [--scope full|partial] [--targets K1,K2] [--xlsx]
    ```
    출력: PPTX(파일명 규칙 자동) + `report.json` + 콘솔 요약(범위·경고·검증 실패). `--xlsx`는 화면목록 xlsx 동시 생성.
-5. **경고 0·검증 실패 0이 될 때까지 spec만 고쳐 재실행.** 경고 예: 마커 위치 없는 항목, 묶음 순서 위반, 760px 초과, 참조ID 불일치.
+5. **경고 0·검증 실패 0이 될 때까지 spec만 고쳐 재실행.** 경고 예: 마커 위치 없는 항목, 묶음 순서 위반, 760px 초과, 불필요한 wire 분할, 참조ID 불일치.
 6. **육안 확인은 샘플만** — 새로 쓴 블록 유형이 들어간 상세 장표 1~2장만 `--render 12,15`로 PNG 확인(전 장표 렌더 금지).
 7. **전달** — PPTX를 다운로드 전용 첨부로 보낸다. 메시지는 범위(전체화면/해당화면)·장표 수·화면 수·참조ID 건수·동기화 불일치·신규 T-n 건수만(해당화면은 신규 참조ID 목록 포함). spec JSON은 요청 시 함께.
 
@@ -76,6 +76,9 @@ python3 $S/scripts/build_deck.py screen_spec.json -o out --scope partial --targe
 - 용어: 노출→표시/보이기·감추기, 모바일은 **터치**·관리자는 **클릭**, 날짜+시간=일시·날짜=일자, Confirm Y/N → `[예]` `[아니요]`(원문이 Y/N뿐이면 문구 [TBD]).
 - **미확정 문장에는 참조ID 필수**: `[TBD C-2]` `[결정필요 C-3]` `[개발확인 C-14]`. C-n 기능정의서 검토사항, N-n 미해결 넘버링 점검, T-n 비고 [TBD] 중 번호 없는 것(신규 부여 → 전달 시 기능정의서 등재 대상으로 알림), Q-n 요구사항정의서 질의. 모든 참조ID는 `decisions`에 등재(페이지는 자동 수집).
 - 번호: 0은 화면설명(자동), 1부터 위→아래·좌→우, 하위 `3-1`. 원본 번호가 틀렸으면 기능정의서 기준으로 재부여(동기화 키 = Component ID). 모드 변형 장표는 같은 컴포넌트에 같은 번호.
+- **장표 분할은 슬라이드를 벗어날 때만.** Description 표에 공간이 남으면 같은 장에 계속 채우고, 다음 항목이 슬라이드 하단 한계(y 7.10in)를 넘을 때만 다음 장으로 넘긴다. 장마다 항목 수를 고르게 나누거나 여유를 두고 일부러 나누지 않는다(스크립트가 채움 우선으로 자동 분할). 항목 하나가 한 장을 넘으면 그 항목만 `(이어짐)`으로 이어 붙인다.
+  - 화면(와이어프레임)도 같다: 관리자 화면이 760px을 넘을 때만 `wire`를 상단/하단 part로 나눈다. 합쳐서 760px 이내인데 나누면 경고가 뜨므로 한 part로 합친다.
+  - 높이 추정은 PowerPoint(Windows, 맑은 고딕) 실제 렌더 기준이다. `--render`(LibreOffice, 대체 글꼴) PNG는 줄이 더 길게 나와 넘쳐 보일 수 있으니 분할 판단에 쓰지 않는다.
 - 장표 단위: Screen/Page → 화면 1개. Popup·Alert은 부모 화면에 함께(ADM `popup`, MO frame `popup`) 또는 ID 따로 있고 항목 5개 이상이면 독립 화면. 한 Screen ID의 모드 변형(예: 관리자발급/접수발급)은 화면을 나누고 이름에 `(변형명)`, 화면ID는 같게. 여러 버튼이 공유하는 Confirm은 `common`에 한 장(screenId `-`).
 - 공통 장표·GNB는 **입력 문서에 근거가 있을 때만**.
 - 묶음 폼 요소 순서: **선택(셀렉트·기준 라디오) → 컨트롤러(기간·토글 버튼) → 폼요소(달력·인풋)**. Description 설명 순서도 동일.
@@ -113,7 +116,7 @@ python3 $S/scripts/build_deck.py screen_spec.json -o out --scope partial --targe
            "lines":["단일 선택: e-mail / FAX","  하위 글머리(공백 2칸)","규칙 [TBD C-13]"]}],
  "wire": {...} }        // 760px 넘는 관리자 화면은 "wire":[{상단},{..., "suffix":" (하단)"}]
 ```
-type 태그: 버튼 입력 선택 텍스트 영역 목록 표 탭 팝업 알럿 바텀시트 토스트 로직 공통. `tag:true` → 주황 마커. Description 분할·`(1/3)`·"p.N에서 이어짐"은 자동. **모든 item no는 wire 어딘가의 `no`와 짝**(아니면 경고).
+type 태그: 버튼 입력 선택 텍스트 영역 목록 표 탭 팝업 알럿 바텀시트 토스트 로직 공통. `tag:true` → 주황 마커. Description 분할(슬라이드를 넘을 때만, 채움 우선)·`(1/3)`·"p.N에서 이어짐"은 자동. **모든 item no는 wire 어딘가의 `no`와 짝**(아니면 경고).
 
 **ADM wire** — `{"title","crumb"(생략 시 path), "blocks":[...], "popup":{...}}` 1280px 기준 px, 위에서 아래로 자동 적층.
 
@@ -139,5 +142,6 @@ item(t): `title` `text`(size,bold,color,align) `input`/`select`(label,ph,val,req
 - 범위가 요청과 맞는가: "전체화면"일 때만 전 장표, "해당화면/일부화면"일 때는 화면 목록·간지·와이어프레임 상세만(콘솔 `범위` 표시로 확인)
 
 - 입력에 없는 요소를 넣지 않았는가, 이동 설명마다 [화면ID]가 있는가, `[TBD]`마다 참조ID가 있는가
+- 한 화면이 여러 장으로 나뉘었다면, 앞 장이 Description 공간을 다 쓴 뒤에 넘어갔는가(빈 공간이 큰데 나뉜 장이 없는가)
 - PPTX Description에 Component ID가 없는가 / HTML 버전을 함께 만들었다면 HTML Description에는 모든 항목에 Component ID가 있는가
 - 동기화: 화면ID·화면명·Component ID·순서가 기능정의서와 같은가 (화면목록·플로우는 spec 하나에서 자동 생성되므로 spec만 맞으면 된다)

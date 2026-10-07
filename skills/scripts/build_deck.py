@@ -31,6 +31,7 @@ REF_RE = re.compile(r"\b([CNTQ]-\d+)\b")
 EMOJI_RE = re.compile("[\U0001F300-\U0001FAFF✅❌⭐]")
 
 WARN = []
+WIRE_H = {}         # screen key -> {part id: 그린 높이 px}
 def warn(msg):
     WARN.append(msg)
 
@@ -501,39 +502,74 @@ def item_head(item):
     h = f"[{item['type']}] {item['name']}" if item.get("type") else item.get("name", "")
     return h
 
+# Description 표 실측 기준 — PowerPoint(Windows, 맑은 고딕 8pt) 렌더 장표로 보정 (2026-10-07)
+#  · 줄바꿈: 한글도 글자 단위로 끊김(어절 단위 아님)
+#  · 글자 폭: 한글 ≈0.92em, 영문·숫자·기호 ≈0.48em
+#  · 줄높이: 8pt·줄간격 120% → 약 0.157in (1.2em×1.2로 잡아 약 2% 여유)
+DESC_TOP = 0.946                         # 표 시작 y
+DESC_LIMIT = WY_MAX - DESC_TOP - 0.03    # 표가 쓸 수 있는 높이 (≈6.12in)
+DESC_W = {"head": 2.30, "b1": 2.19, "b2": 2.08}   # 열 2.40 - 셀 여백 0.10 - 글머리 들여쓰기
+DESC_EM = (0.92, 0.48)                   # (한글, 그 외) 글자 폭 em
+ROW_PAD = 0.07                           # 셀 상하 여백(0.03×2) + 테두리
+
+def desc_line_h(size):
+    return size * 1.2 * 1.2 / 72
+
+def wrap_n(s, size, avail):
+    """PowerPoint 줄바꿈 모사 — 글자 단위로 채우다 폭을 넘으면 다음 줄"""
+    avail -= 0.02
+    total = 0
+    for para in str(s).split("\n"):
+        lines, cur = 1, 0.0
+        for ch in para:
+            cw = size * (DESC_EM[0] if is_wide(ch) else DESC_EM[1]) / 72
+            if cur > 0 and cur + cw > avail:
+                lines += 1; cur = 0.0
+            cur += cw
+        total += lines
+    return total
+
+def para_h(text, kind, size=8):
+    return wrap_n(text, size, DESC_W[kind]) * desc_line_h(size)
+
 def item_h(item):
     head = item_head(item) + (" " + status_tag(item) if status_tag(item) else "") + (f" ({item['status']})" if item.get("status") else "")
-    h = 0.075 + n_lines(head, 8, 2.28) * line_h(8)
+    h = ROW_PAD + para_h(head, "head")
     # Component ID(cid)는 PPTX Description에 표시하지 않음 (HTML 화면설계서에서만 표시)
     for ln in item.get("lines", []):
-        sub = ln.startswith("  ")
-        h += n_lines(ln.strip(), 8, 2.00 if sub else 2.14) * line_h(8)
-    return h * 1.12
+        h += para_h(ln.strip(), "b2" if ln.startswith("  ") else "b1")
+    return h
 
-def split_items(items, first_h, cont_h, limit=6.05):
-    hs = [item_h(i) for i in items]
-    def greedy(L):
-        pages, cur, used = [], [], first_h
-        for it, h in zip(items, hs):
-            if cur and used + h > L:
-                pages.append(cur); cur, used = [], cont_h
-            cur.append(it); used += h
-        pages.append(cur)
-        return pages
-    base = greedy(limit)
-    n = len(base)
-    if n == 1:
-        return base
-    lo, hi = max(hs) + cont_h, limit
-    best = base
-    for _ in range(25):
-        mid = (lo + hi) / 2
-        p = greedy(mid)
-        if len(p) <= n:
-            best, hi = p, mid
+def split_long_item(it, limit):
+    """한 항목이 표 한 장 높이를 넘으면 lines를 나눠 '(이어짐)' 항목으로 이어 붙임"""
+    if item_h(it) <= limit:
+        return [it]
+    out, cur = [], {**it, "lines": []}
+    for ln in it.get("lines", []):
+        trial = {**cur, "lines": cur["lines"] + [ln]}
+        if cur["lines"] and item_h(trial) > limit:
+            out.append(cur)
+            cur = {**it, "name": it.get("name", "") + " (이어짐)", "lines": [ln], "status": None, "tag": False}
         else:
-            lo = mid
-    return best
+            cur = trial
+    out.append(cur)
+    return out
+
+def split_items(items, first_h, cont_h, limit=None):
+    """채움 우선 분할: 현재 장에 다음 항목이 들어갈 공간이 있으면 계속 넣고,
+    슬라이드 하단 한계를 넘을 때만 다음 장으로 넘김 (균등 분배·일부러 나누기 없음)"""
+    limit = limit or DESC_LIMIT
+    flat = []
+    for it in items:
+        flat += split_long_item(it, limit - cont_h)
+    pages, cur, used = [], [], first_h
+    for it in flat:
+        h = item_h(it)
+        if cur and used + h > limit:
+            pages.append(cur); cur, used = [], cont_h
+        cur.append(it); used += h
+    pages.append(cur)
+    return pages
 
 def wire_nos(obj, acc):
     if isinstance(obj, dict):
@@ -565,8 +601,8 @@ def plan_screen(s):
     else:
         groups[0] = items
     ov = s.get("overview", [])
-    first_h = 1.12 * (0.075 + line_h(8) + sum(n_lines(x, 8, 2.14) * line_h(8) for x in ov))
-    cont_h = 1.12 * (0.075 + line_h(8) + 2 * line_h(8))
+    first_h = ROW_PAD + desc_line_h(8) + sum(para_h(x, "b1") for x in ov)
+    cont_h = ROW_PAD + desc_line_h(8) + para_h("p.00에서 이어짐 — 화면 목적·진입 경로는 p.00 참조", "b1")
     pages = []
     for k, (part, grp) in enumerate(zip(parts, groups)):
         chunks = split_items(grp, first_h if not pages else cont_h, cont_h) if grp else [[]]
@@ -958,6 +994,7 @@ def draw_adm(w: Wire, part, s, has):
             y += 26
         else:
             warn(f"알 수 없는 관리자 블록: {t}")
+    WIRE_H.setdefault(s["key"], {})[id(part)] = y
     if y > 760:
         warn(f"{s.get('screenId')} 관리자 와이어프레임 높이 {int(y)}px > 760px — wire를 상단/하단 part로 나누세요")
     if part.get("popup"):
@@ -1413,6 +1450,10 @@ def build(spec, out_dir, only=None, xlsx=False, scope=None, targets=None):
             cells[ri][1]["color"] = C["tbd"]; cells[ri][1]["bold"] = True
         heights = [0.27] + [max(0.3, 0.06 + n_lines(r[4], 8, 6.9) * line_h(8)) for r in full]
         table(sl, 0.40, 1.15, [0.7, 0.95, 1.9, 0.9, 7.08, 1.0], heights, cells, name="decisions")
+    # 화면(와이어프레임) 분할은 슬라이드를 벗어날 때만 — 합쳐도 760px 이내면 경고
+    for key, hs in WIRE_H.items():
+        if len(hs) > 1 and sum(hs.values()) <= 760:
+            warn(f"{key}: wire part {len(hs)}개 합계 {int(sum(hs.values()))}px ≤ 760px — 나눌 필요 없음, 한 part로 합치세요")
     # 참조ID 정합 (§13-10)
     dec_ids = set(r[0] for r in decisions)
     body_ids = set(REFS.keys())
