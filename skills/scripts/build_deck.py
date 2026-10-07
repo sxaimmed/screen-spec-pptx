@@ -261,7 +261,7 @@ def table(sl, x, y, colw, rowh, cells, name=None, border="BFBFBF", bw=0.5, size=
 
 # ───────────────────────── 페이지 토큰·참조ID ─────────────────────────
 PAGES = {}          # key -> [pages]
-CUR = {"page": None, "collect": False}
+CUR = {"page": None, "collect": False, "scope": "full"}
 REFS = {}           # refId -> set(pages)
 
 def T(s):
@@ -270,6 +270,8 @@ def T(s):
         kind, key = m.group(1), m.group(2)
         pg = PAGES.get(key)
         if not pg:
+            if CUR.get("scope") == "partial":
+                return "전체본 참조"   # 해당화면 덱에 없는 화면 → 경고 없이 표기
             warn(f"페이지 토큰 대상 없음: {m.group(0)}")
             return "p.?"
         if kind == "p":
@@ -1250,9 +1252,43 @@ def slide_detail(prs, page, pg, k, n, first_page):
 def chunk(lst, n):
     return [lst[i:i + n] for i in range(0, len(lst), n)] or [[]]
 
-def build(spec, out_dir, only=None, xlsx=False):
+def norm_scope(v):
+    v = str(v or "full").strip().lower()
+    if v in ("partial", "해당화면", "일부화면", "일부", "해당"):
+        return "partial"
+    if v in ("full", "전체화면", "전체"):
+        return "full"
+    sys.exit(f"scope 값 오류: {v} (full|partial)")
+
+def filter_targets(spec, targets):
+    """targets(화면 key 또는 screenId)에 해당하는 화면만 남김. 빈 섹션은 간지째 제외."""
+    want = set(map(str, targets))
+    hit = set()
+    def keep(s):
+        ok = s["key"] in want or str(s.get("screenId")) in want
+        if ok:
+            hit.update({s["key"], str(s.get("screenId"))})
+        return ok
+    spec["common"] = [s for s in spec.get("common", []) if keep(s)]
+    secs = []
+    for sec in spec.get("sections", []):
+        scr = [s for s in sec.get("screens", []) if keep(s)]
+        if scr:
+            secs.append({**sec, "screens": scr})
+    spec["sections"] = secs
+    for t in sorted(want - hit):
+        warn(f"targets 대상 화면 없음: {t}")
+    if not spec["common"] and not secs:
+        sys.exit("targets에 해당하는 화면이 없습니다")
+
+def build(spec, out_dir, only=None, xlsx=False, scope=None, targets=None):
     global DOC
     DOC = spec["doc"]
+    scope = norm_scope(scope or DOC.get("scope"))
+    CUR["scope"] = scope
+    targets = targets or DOC.get("targets")
+    if targets:
+        filter_targets(spec, targets)
     DOC.setdefault("date", datetime.date.today().isoformat())
     DOC.setdefault("mode", "ADM")
     DOC.setdefault("title", "화면설계서(관리자, 웹)" if DOC["mode"] == "ADM" else "화면설계서(모바일)")
@@ -1267,23 +1303,26 @@ def build(spec, out_dir, only=None, xlsx=False):
     by_key = {s["key"]: s for s in all_screens}
 
     # ── 장표 계획
+    # scope: full = 전체 장표 / partial = 화면목록 + 간지 + 와이어프레임 상세만
+    full = scope == "full"
     plan = []   # (kind, payload)
-    plan.append(("cover", None))
-    for i, ch in enumerate(chunk(spec.get("revisions", []), 16)):
-        plan.append(("rev", ch))
-    qna = spec.get("qna", [])
-    for ch in chunk(qna, 10):
-        plan.append(("qna", ch))
-    plan.append(("overview", None))
+    if full:
+        plan.append(("cover", None))
+        for i, ch in enumerate(chunk(spec.get("revisions", []), 16)):
+            plan.append(("rev", ch))
+        for ch in chunk(spec.get("qna", []), 10):
+            plan.append(("qna", ch))
+        plan.append(("overview", None))
     list_chunks = chunk(all_screens, 20)
     for i, ch in enumerate(list_chunks):
         plan.append(("list", (i, len(list_chunks), ch)))
-    excl = spec.get("excluded", [])
+    excl = spec.get("excluded", []) if full else []
     fit_excl = excl and len(list_chunks[-1]) + len(excl) <= 16
     if excl and not fit_excl:
         plan.append(("excl", excl))
-    for fl in (spec.get("flows") or ([spec["flow"]] if spec.get("flow") else [])):
-        plan.append(("flow", fl))
+    if full:
+        for fl in (spec.get("flows") or ([spec["flow"]] if spec.get("flow") else [])):
+            plan.append(("flow", fl))
     detail_pages = {}
     if common:
         plan.append(("divider", ("공통 화면", "입력 문서에 근거가 있는 공통 요소")))
@@ -1298,11 +1337,12 @@ def build(spec, out_dir, only=None, xlsx=False):
             pgs = plan_screen(s)
             for k, pg in enumerate(pgs, 1):
                 plan.append(("detail", (pg, k, len(pgs))))
-    for pol in spec.get("policies", []):
-        plan.append(("policy", pol))
     decisions = spec.get("decisions", [])
-    for ch in chunk(decisions, 12) if decisions else []:
-        plan.append(("dec", ch))
+    if full:
+        for pol in spec.get("policies", []):
+            plan.append(("policy", pol))
+        for ch in chunk(decisions, 12) if decisions else []:
+            plan.append(("dec", ch))
     # 페이지 확정
     for i, (kind, pl) in enumerate(plan, 1):
         if kind == "detail":
@@ -1371,8 +1411,9 @@ def build(spec, out_dir, only=None, xlsx=False):
     body_ids = set(REFS.keys())
     for rid in sorted(body_ids - dec_ids):
         warn(f"참조ID {rid}: 본문에 있으나 선행 결정사항에 없음 (p.{sorted(REFS[rid])})")
-    for rid in sorted(dec_ids - body_ids):
-        warn(f"참조ID {rid}: 선행 결정사항에만 있고 본문에 없음")
+    if full:   # 해당화면 모드는 결정사항 장표가 없고 범위 밖 ID가 정상이라 역방향 점검 생략
+        for rid in sorted(dec_ids - body_ids):
+            warn(f"참조ID {rid}: 선행 결정사항에만 있고 본문에 없음")
 
     # ── 저장
     ymd = DOC["date"].replace("-", "")
@@ -1390,7 +1431,7 @@ def build(spec, out_dir, only=None, xlsx=False):
         fname = fname.replace(".pptx", f"_p{'-'.join(map(str, sorted(keep)))}.pptx")
     path = os.path.join(out_dir, fname)
     prs.save(path)
-    report = {"file": path, "slides": total, "screens": len(all_screens), "detailSlides": stats["detail"],
+    report = {"file": path, "scope": scope, "slides": total, "screens": len(all_screens), "detailSlides": stats["detail"],
               "refIds": {k: sorted(v) for k, v in REFS.items()}, "pages": PAGES, "warnings": WARN}
     if xlsx:
         report["xlsx"] = write_xlsx(all_screens, out_dir, ymd)
@@ -1515,10 +1556,13 @@ def main():
     ap.add_argument("--only", help="예: 13,14 — 해당 장표만 저장(페이지 번호 유지)")
     ap.add_argument("--render", help="all 또는 13,14 — PNG 렌더 (육안 검수용)")
     ap.add_argument("--xlsx", action="store_true", help="화면목록 xlsx 함께 생성")
+    ap.add_argument("--scope", help="full(전체화면, 기본) | partial(해당화면: 화면목록·간지·와이어프레임만). doc.scope보다 우선")
+    ap.add_argument("--targets", help="해당화면 모드 대상 화면 key 또는 screenId, 쉼표 구분. doc.targets보다 우선")
     a = ap.parse_args()
     spec = json.load(open(a.spec, encoding="utf-8"))
     only = [int(x) for x in a.only.split(",")] if a.only else None
-    path, report, pnums = build(spec, a.out, only, a.xlsx)
+    targets = [t.strip() for t in a.targets.split(",") if t.strip()] if a.targets else None
+    path, report, pnums = build(spec, a.out, only, a.xlsx, a.scope, targets)
     errs = verify(path, pnums)
     report["verify"] = errs
     if a.render:
@@ -1529,7 +1573,7 @@ def main():
     rp = os.path.join(a.out, "report.json")
     json.dump(report, open(rp, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     print(f"OK {path}")
-    print(f"장표 {report['slides']} · 화면 {report['screens']} · 상세 {report['detailSlides']} · 참조ID {len(report['refIds'])}")
+    print(f"범위 {'전체화면' if report['scope']=='full' else '해당화면'} · 장표 {report['slides']} · 화면 {report['screens']} · 상세 {report['detailSlides']} · 참조ID {len(report['refIds'])}")
     print(f"경고 {len(WARN)}건 · 검증 실패 {len(errs)}건")
     for m in WARN[:40]:
         print("  [경고]", m)
