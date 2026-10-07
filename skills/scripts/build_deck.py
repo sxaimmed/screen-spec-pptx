@@ -504,8 +504,7 @@ def item_head(item):
 def item_h(item):
     head = item_head(item) + (" " + status_tag(item) if status_tag(item) else "") + (f" ({item['status']})" if item.get("status") else "")
     h = 0.075 + n_lines(head, 8, 2.28) * line_h(8)
-    if item.get("cid"):
-        h += n_lines(item["cid"], 7.5, 2.28) * line_h(7.5)
+    # Component ID(cid)는 PPTX Description에 표시하지 않음 (HTML 화면설계서에서만 표시)
     for ln in item.get("lines", []):
         sub = ln.startswith("  ")
         h += n_lines(ln.strip(), 8, 2.00 if sub else 2.14) * line_h(8)
@@ -618,9 +617,7 @@ def desc_table(sl, s, pg_items, first, first_page):
             runs.append([" " + tag, {"bold": True, "color": C["tbd"]}])
         if it.get("status"):
             runs.append([f" ({it['status']})", {"bold": True, "color": STATUS.get(it["status"], C["text"])}])
-        paras = [{"runs": runs, "lnspc": 120}]
-        if it.get("cid"):
-            paras.append({"text": it["cid"], "size": 7.5, "color": C["cid"], "lnspc": 120})
+        paras = [{"runs": runs, "lnspc": 120}]   # cid는 PPTX에 표시 안 함 (spec에는 동기화 키로 유지)
         for ln in it.get("lines", []):
             sub = ln.startswith("  ")
             paras.append({"text": ln.strip(), "bullet": 2 if sub else 1, "lnspc": 120})
@@ -1301,6 +1298,16 @@ def build(spec, out_dir, only=None, xlsx=False, scope=None, targets=None):
             warn(f"화면 key 중복: {s['key']}")
         keys.add(s["key"])
     by_key = {s["key"]: s for s in all_screens}
+    # PPTX Description에는 Component ID를 쓰지 않는다 — 본문(lines·overview)에 섞여 있으면 경고
+    cids = {str(it["cid"]) for s in all_screens for it in s.get("items", []) if it.get("cid")}
+    if cids:
+        cid_re = re.compile("|".join(re.escape(c) for c in sorted(cids, key=len, reverse=True)))
+        for s in all_screens:
+            for src, txts in [("overview", s.get("overview", []))] + [(f"item {it.get('no')}", it.get("lines", [])) for it in s.get("items", [])]:
+                for t in txts:
+                    m = cid_re.search(str(t))
+                    if m:
+                        warn(f"{s['key']} {src}: Description에 Component ID '{m.group(0)}' 포함 — PPTX에서는 빼야 함")
 
     # ── 장표 계획
     # scope: full = 전체 장표 / partial = 화면목록 + 간지 + 와이어프레임 상세만

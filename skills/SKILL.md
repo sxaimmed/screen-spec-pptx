@@ -66,6 +66,10 @@ python3 $S/scripts/build_deck.py screen_spec.json -o out --scope partial --targe
 ## 3. 내용 규칙 (스크립트가 못 하는 것)
 
 - **화면ID·Component ID·화면명은 기능정의서 값 그대로.** 없으면 가채번(`{SVC}-ADM-{메뉴}-{기능}`) + `[TBD]`.
+- **Component ID 표시 — 산출물 형식별로 다르다.**
+  - **PPTX 화면설계서**: Description 영역에 Component ID(예: `TDC-ADM-CARE-LIST-sel-4`)를 **표시하지 않는다.** 항목은 번호·`[유형] 항목명`·태그·설명 글머리만. 스크립트가 자동으로 뺀다.
+  - **HTML 화면설계서**: Description 영역의 각 항목에 Component ID를 **반드시 표시한다**(항목명 바로 아래 줄).
+  - 두 형식 모두 spec의 `cid`는 **항상 채운다**(동기화 키·HTML 표시용). `lines`·`overview` 문장 안에 Component ID를 직접 쓰지 않는다 — 쓰면 스크립트가 경고한다.
 - 기능 요구사항 밖 화면·버튼·문구·필수(*)·기본값은 **추가 금지**(승인 전 `[TBD]` 또는 검토사항).
 - Description 변환: Property의 `1. 2.` → 글머리 1개씩, `-` 하위 → 앞에 공백 2칸(하위 글머리). Property `None` → "동작 정의 없음 [TBD 참조ID]". 비고(P열) → 하위 글머리.
 - 문장 규칙: 동작은 `[트리거] → (조건) → 결과`, 이동은 **화면명 + [화면ID]** 필수, 팝업은 버튼별 결과 모두, 문구는 큰따옴표 원문, DB 값 `%변수%`, 근거 요구사항 `(REQ-03)`, 원본 변경 `(v2.88 변경)`.
@@ -105,7 +109,7 @@ python3 $S/scripts/build_deck.py screen_spec.json -o out --scope partial --targe
  "type":"페이지|팝업|탭|바텀시트","status":"신규|수정|확인필요|정책변경|기존","req":"REQ-03","updated":"YYYY-MM-DD",
  "frameLabel":"관리자발급", "mode":"ADM|MO(생략 시 doc.mode)",
  "overview":["목적","진입 경로","사전조건"],
- "items":[{"no":"9","type":"선택","name":"발급방법","cid":"DocIssue-radio-2","tag":true,"status":"신규",
+ "items":[{"no":"9","type":"선택","name":"발급방법","cid":"DocIssue-radio-2"/*PPTX 미표시·HTML 표시*/,"tag":true,"status":"신규",
            "lines":["단일 선택: e-mail / FAX","  하위 글머리(공백 2칸)","규칙 [TBD C-13]"]}],
  "wire": {...} }        // 760px 넘는 관리자 화면은 "wire":[{상단},{..., "suffix":" (하단)"}]
 ```
@@ -135,4 +139,5 @@ item(t): `title` `text`(size,bold,color,align) `input`/`select`(label,ph,val,req
 - 범위가 요청과 맞는가: "전체화면"일 때만 전 장표, "해당화면/일부화면"일 때는 화면 목록·간지·와이어프레임 상세만(콘솔 `범위` 표시로 확인)
 
 - 입력에 없는 요소를 넣지 않았는가, 이동 설명마다 [화면ID]가 있는가, `[TBD]`마다 참조ID가 있는가
+- PPTX Description에 Component ID가 없는가 / HTML 버전을 함께 만들었다면 HTML Description에는 모든 항목에 Component ID가 있는가
 - 동기화: 화면ID·화면명·Component ID·순서가 기능정의서와 같은가 (화면목록·플로우는 spec 하나에서 자동 생성되므로 spec만 맞으면 된다)
