@@ -8,5 +8,6 @@ python3 scripts/build_deck.py examples/admin_sample.json -o out --render 10 --xl
 - `--only 13,14` 지정 장표만 저장(페이지 번호 유지)
 - `--render all|13,14` PNG 렌더(soffice·pdftoppm 필요)
 - `--xlsx` 화면목록 xlsx 동시 생성
+- `--scope full|partial` 전체화면(전 장표, 기본) / 해당화면(화면목록·간지·와이어프레임만), `--targets K1,K2` 해당화면 대상 화면
 
 규칙이 바뀌면(v0.46 등) 이 스크립트의 상수·함수와 SKILL.md를 같이 고친다.

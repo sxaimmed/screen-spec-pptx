@@ -1,6 +1,6 @@
 ---
 name: screen-spec-pptx
-description: 기능정의서·요구사항정의서로 모바일/관리자 화면설계서 PPTX를 만들거나 고칠 때 사용. 작성규칙 v0.45 기준, JSON 명세만 쓰고 고정 스크립트로 생성·검증한다.
+description: 기능정의서·요구사항정의서로 모바일/관리자 화면설계서 PPTX를 만들거나 고칠 때 사용. 전체화면(전 장표)·해당화면(화면목록·간지·와이어프레임만) 범위 지원. 작성규칙 v0.45 기준, JSON 명세만 쓰고 고정 스크립트로 생성·검증한다.
 ---
 
 # 화면설계서 PPTX 생성 (작성규칙 v0.45)
@@ -11,35 +11,59 @@ description: 기능정의서·요구사항정의서로 모바일/관리자 화�
 ## 0. 준비 (매번 1회, 토큰 거의 0)
 
 ```bash
-D=/home/claude/aimmed-guideline
-[ -d $D ] || git clone --depth 1 https://github.com/sxaimmed/aimmed-guideline $D
-S=$D/skills/screen-spec-pptx      # scripts/build_deck.py, examples/*.json
+D=/home/claude/screen-spec-pptx
+[ -d $D ] || git clone --depth 1 https://github.com/sxaimmed/screen-spec-pptx $D
+S=$D/skills                       # scripts/build_deck.py, examples/*.json
 ls $S/scripts/build_deck.py
 ```
-- clone이 거부되면 add_repo(owner sxaimmed, repo aimmed-guideline, access read) 후 다시 clone.
+- clone이 거부되면 add_repo(owner sxaimmed, repo screen-spec-pptx, access read) 후 다시 clone.
 - 폴더가 없으면 사용자에게 `screen-spec-pptx.zip`을 첨부해 달라고 하고 압축을 풀어 쓴다.
 - 필요: python-pptx, lxml (없으면 `pip install python-pptx --break-system-packages`), 렌더는 soffice·pdftoppm.
 - 스키마가 헷갈릴 때만 `$S/examples/admin_sample.json`(관리자) / `mobile_sample.json`(모바일)을 연다. 스크립트 본문은 열지 않는다.
 
-## 1. 절차
+## 1. 작성 범위 — 전체화면 / 해당화면
+
+요청 문구로 범위를 정한다. 범위에 따라 **들어가는 장표가 다르다.**
+
+| 범위 | 요청 표현 | 포함 장표 | 제외 장표 |
+|---|---|---|---|
+| **전체화면** (`full`) | "전체화면", "전체" | 표지 · Revision History · 요구사항 및 질문답변 · 문서 개요·작성 기준 · 화면 목록(제외 화면 포함) · 플로우 · 간지 · 와이어프레임 상세 · 정책 · 선행 결정사항 — **모든 장표** | 없음 |
+| **해당화면** (`partial`) | "해당화면", "일부화면", "이 화면만", "OO 화면" | **화면 목록 · 간지 · Description이 들어간 와이어프레임 상세만** | 표지, Revision History, 요구사항 및 질문답변, 문서 개요·작성 기준, 플로우, 제외 화면, 정책, 선행 결정사항 |
+
+- **전체 장표는 "전체화면"이라고 할 때만** 만든다. **축소 구성은 "해당화면/일부화면"이라고 할 때만** 만든다.
+- 둘 다 말하지 않았으면 생성 전에 한 번 묻는다(AskUserQuestion: 전체화면 / 해당화면). 물을 수 없는 상황(무인 실행)이면 전체화면으로 만들고 전달 메시지 첫 줄에 그렇게 판단했다고 적는다.
+- 해당화면에서 **대상 화면**은 사용자가 지목한 화면(화면명·화면ID·메뉴)이다. 지목이 모호하면 대상 화면 목록(화면명·화면ID)을 먼저 제시해 확인받는다.
+- 해당화면의 화면 목록·간지는 **대상 화면만** 담는다(대상이 없는 섹션은 간지째 빠짐). 장표 번호는 1부터 다시 매긴다.
+- 해당화면이어도 Description 내용 규칙(§3)·참조ID 표기·마커 짝 맞춤은 전체화면과 똑같이 지킨다. 선행 결정사항 장표가 없으므로, 신규 참조ID(T-n 등)는 전달 메시지에 목록으로 알린다.
+- 대상 화면에서 덱 밖 화면으로 가는 `{{p:KEY}}` 토큰은 "전체본 참조"로 자동 표기된다(경고 아님). 이동 설명의 **화면명 + [화면ID]**는 그대로 필수.
+
+**스크립트 지정** — `doc.scope`(`"full"`|`"partial"`, 한글 `"전체화면"`|`"해당화면"`도 허용)와 `doc.targets`(화면 key 또는 screenId 배열), 또는 CLI `--scope`·`--targets`(CLI가 우선).
+```bash
+python3 $S/scripts/build_deck.py screen_spec.json -o out --scope partial --targets ISSUE_A,DocList
+```
+- 전체화면용 spec이 이미 있으면 **spec을 새로 쓰지 말고** `--scope partial --targets ...`로 같은 spec에서 뽑는다.
+- spec이 없고 해당화면만 요청받았으면 대상 화면만 담은 spec을 쓴다. 이때 `revisions`·`qna`·`overview`·`excluded`·`flow`·`policies`는 생략해도 되고, `decisions`는 본문 참조ID 정합 점검용으로 채운다.
+- targets에 없는 key/screenId는 경고로 나온다(오타 확인).
+
+## 2. 절차
 
 1. **입력 파싱** — 기능정의서(1차 원천) > 화면목록 > 요구사항정의서 > 기타 순으로 신뢰. 어긋나면 임의로 고르지 않고 검토사항(C-n/T-n)에 올린다. 첨부 없이 언급만 된 파일은 요청한다.
    - 요구사항정의서만 있으면: 화면목록 초안(화면명·가정 화면ID·유형·REQ-ID)을 표로 먼저 제시 → 승인 후 생성. 부재 시 가정 항목 전부 `[TBD]`.
 2. **모드 판정** — C열 분류 Mobile web/App → `"MO"`, Admin/Desktop web → `"ADM"`. 섞이면 모드별 파일 분리(또는 screen에 `"mode"` 지정).
-3. **spec 작성** — `/home/claude/work/screen_spec.json` (아래 §3 스키마). 큰 화면은 섹션 단위로 나눠 써도 된다.
+3. **spec 작성** — `/home/claude/work/screen_spec.json` (아래 §4 스키마). 큰 화면은 섹션 단위로 나눠 써도 된다.
 4. **생성·검증**
    ```bash
-   python3 $S/scripts/build_deck.py screen_spec.json -o out [--xlsx]
+   python3 $S/scripts/build_deck.py screen_spec.json -o out [--scope full|partial] [--targets K1,K2] [--xlsx]
    ```
-   출력: PPTX(파일명 규칙 자동) + `report.json` + 콘솔 요약(경고·검증 실패). `--xlsx`는 화면목록 xlsx 동시 생성.
+   출력: PPTX(파일명 규칙 자동) + `report.json` + 콘솔 요약(범위·경고·검증 실패). `--xlsx`는 화면목록 xlsx 동시 생성.
 5. **경고 0·검증 실패 0이 될 때까지 spec만 고쳐 재실행.** 경고 예: 마커 위치 없는 항목, 묶음 순서 위반, 760px 초과, 참조ID 불일치.
 6. **육안 확인은 샘플만** — 새로 쓴 블록 유형이 들어간 상세 장표 1~2장만 `--render 12,15`로 PNG 확인(전 장표 렌더 금지).
-7. **전달** — PPTX를 다운로드 전용 첨부로 보낸다. 메시지는 장표 수·화면 수·참조ID 건수·동기화 불일치·신규 T-n 건수만. spec JSON은 요청 시 함께.
+7. **전달** — PPTX를 다운로드 전용 첨부로 보낸다. 메시지는 범위(전체화면/해당화면)·장표 수·화면 수·참조ID 건수·동기화 불일치·신규 T-n 건수만(해당화면은 신규 참조ID 목록 포함). spec JSON은 요청 시 함께.
 
 **수정 요청**: spec의 해당 부분만 Edit로 고친 뒤 재생성한다(전체 재작성 금지). 확인이 필요한 장표만 `--render`.
 **업데이트 모드**: 기존 PPTX는 python-pptx로 텍스트만 읽어 spec을 복원 → 변경 범위만 수정, 변경 요소에 `vmemo`·`mark`, Revision History 맨 위 행 추가. 버전은 승인 전 유지(날짜만 갱신). `--only 13,14`로 해당 장표만 뽑아 확인 가능.
 
-## 2. 내용 규칙 (스크립트가 못 하는 것)
+## 3. 내용 규칙 (스크립트가 못 하는 것)
 
 - **화면ID·Component ID·화면명은 기능정의서 값 그대로.** 없으면 가채번(`{SVC}-ADM-{메뉴}-{기능}`) + `[TBD]`.
 - 기능 요구사항 밖 화면·버튼·문구·필수(*)·기본값은 **추가 금지**(승인 전 `[TBD]` 또는 검토사항).
@@ -54,12 +78,13 @@ ls $S/scripts/build_deck.py
 - 버튼: 버튼 묶음마다 강조(`primary`) 1개(주 실행: 검색·저장·발급하기·확인·예). 선택된 기간/토글은 `on`.
 - 파일명(자동): `{deliverable}_{service}_{version}_{YYYYMMDD}.pptx`. 짝 문서 버전이 있으면(예 v2.88) 그대로, 없으면 `v01`(문서 안 v0.1).
 
-## 3. spec 스키마 (요약)
+## 4. spec 스키마 (요약)
 
 ```jsonc
 {
  "doc": {"project":"표지·헤더 프로젝트명","service":"파일명 서비스","deliverable":"화면설계서-관리자|화면설계서-모바일",
-         "version":"v2.88","date":"YYYY-MM-DD","author":"-","mode":"ADM|MO","docId":"","source":"기준 기능정의서 파일명"},
+         "version":"v2.88","date":"YYYY-MM-DD","author":"-","mode":"ADM|MO","docId":"","source":"기준 기능정의서 파일명",
+         "scope":"full|partial", "targets":["화면 key 또는 screenId"]},   // scope 생략=full, targets는 partial에서만 의미
  "revisions": [["v2.88","2026-09-29","전체","Notes","작성자"]],          // 최신이 맨 위
  "qna": [["Date/V","중요도","페이지","항목","Notes","요청자","의견","답변자"]], // 없으면 []
  "overview": {"purpose":"", "basis":[["기능정의서","파일명"]], "scope":["추가 줄"], "idRules":["..."]},
@@ -105,7 +130,9 @@ type 태그: 버튼 입력 선택 텍스트 영역 목록 표 탭 팝업 알럿 
 frame: `{"label":"기본","title":"화면 타이틀","back":true,"nav":true,"right":"편집","navNo":"1","body":[item...],"bottom":[item...],"tabbar":{"items":[..],"sel":0,"no":""},"popup":{"title","body":[..],"buttons":[..],"no"},"sheet":{"title","h":360,"body":[..],"no"}}`
 item(t): `title` `text`(size,bold,color,align) `input`/`select`(label,ph,val,req) `btn`(text,primary,disabled) `btns`(items) `radio`/`check`(text) `card`(lines) `list`(items) `kv`(rows) `image`(h) `tabs`(items,sel) `divider` `space`(h) `memo`(text) `toast`(text) — 공통 `no` `mark` `tbd` `after`(간격).
 
-## 4. 전달 전 체크 (스크립트가 자동 검증하는 것 외)
+## 5. 전달 전 체크 (스크립트가 자동 검증하는 것 외)
+
+- 범위가 요청과 맞는가: "전체화면"일 때만 전 장표, "해당화면/일부화면"일 때는 화면 목록·간지·와이어프레임 상세만(콘솔 `범위` 표시로 확인)
 
 - 입력에 없는 요소를 넣지 않았는가, 이동 설명마다 [화면ID]가 있는가, `[TBD]`마다 참조ID가 있는가
 - 동기화: 화면ID·화면명·Component ID·순서가 기능정의서와 같은가 (화면목록·플로우는 spec 하나에서 자동 생성되므로 spec만 맞으면 된다)
